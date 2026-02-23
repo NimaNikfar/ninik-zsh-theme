@@ -1,29 +1,7 @@
 # vim:ft=zsh ts=2 sw=2 sts=2
-#
-# source: agnoster's Theme - https://gist.github.com/3712874
-# A Powerline-inspired theme for ZSH
-#
-# # README
-#
-# In order for this theme to render correctly, you will need a
-# [Powerline-patched font](https://gist.github.com/1595572).
-#
-# In addition, I recommend the
-# [Solarized theme](https://github.com/altercation/solarized/) and, if you're
-# using it on Mac OS X, [iTerm 2](http://www.iterm2.com/) over Terminal.app -
-# it has significantly better color fidelity.
-#
-# # Goals
-#
-# The aim of this theme is to only show you *relevant* information. Like most
-# prompts, it will only show git information when in a git working directory.
-# However, it goes a step further: everything from the current user and
-# hostname to whether the last call exited with an error to whether background
-# jobs are running in this shell will all be displayed automatically when
-# appropriate.
+# source: agnoster's Theme modified by ninik
 
-### Segments of the prompt, default order declaration
-
+### Segments of the prompt
 typeset -aHg AGNOSTER_PROMPT_SEGMENTS=(
     prompt_status
     prompt_context
@@ -34,11 +12,9 @@ typeset -aHg AGNOSTER_PROMPT_SEGMENTS=(
 )
 
 ### Segment drawing
-# A few utility functions to make it easy and re-usable to draw segmented prompts
-
 CURRENT_BG='NONE'
 if [[ -z "$PRIMARY_FG" ]]; then
-	PRIMARY_FG=black
+    PRIMARY_FG=black
 fi
 
 # Characters
@@ -51,17 +27,21 @@ CROSS="\u2718"
 LIGHTNING="\u26a1"
 GEAR="\u2699"
 
-# Begin a segment
-# Takes two arguments, background and foreground. Both can be omitted,
-# rendering default background/foreground.
-print_line()
-{
-  # Refer the 88/256 colors section on this webpage: https://misc.flogisoft.com/bash/tip_colors_and_formatting
-  dash='\e[38;5;241m-'
-  for i in {1..$((COLUMNS-buffer))}
-  do
-    echo -ne $dash
-  done
+# --- FIXED PRINT_LINE FUNCTION ---
+print_line() {
+  # Define a default buffer if not set
+  local buffer=0
+  # Using a grey color by default for the line
+  local dash_color='\e[38;5;241m' 
+  local reset='\e[0m'
+  
+  # Calculate width safely
+  local width=$((COLUMNS - buffer))
+  
+  # Print the line efficiently using printf
+  printf "$dash_color"
+  printf '%.0s-' {1..$width}
+  printf "$reset"
 }
 
 prompt_segment() {
@@ -77,7 +57,6 @@ prompt_segment() {
   [[ -n $3 ]] && print -n $3
 }
 
-# End the prompt, closing any open segments
 prompt_end() {
   if [[ -n $CURRENT_BG ]]; then
     print -n "%{%k%F{$CURRENT_BG}%}$SEGMENT_SEPARATOR"
@@ -89,24 +68,30 @@ prompt_end() {
 }
 
 ### Prompt components
-# Each component will draw itself, and hide itself if no information needs to be shown
-
-# Context: user@hostname (who am I and where am I)
+# Context: user@hostname with dynamic OS icon
 prompt_context() {
   local user=`whoami`
+  local os_icon="" # Default icon (e.g., for unknown OS or generic)
+
+  # Check for Arch Linux
+  if [[ -f "/etc/arch-release" ]]; then
+    os_icon="" # Arch Linux icon (requires Nerd Font)
+  # Check for macOS
+  elif [[ "$(uname -s)" == "Darwin" ]]; then
+    os_icon="" # Apple logo
+  fi
 
   if [[ "$user" != "$DEFAULT_USER" || -n "$SSH_CONNECTION" ]]; then
-    prompt_segment white black " %(!.%{%F{yellow}%}.)$user  %m "
+    prompt_segment white black " %(!.%{%F{yellow}%}.)$user $os_icon %m "
   fi
 }
 
-# Git: branch/detached head, dirty status
 prompt_git() {
   local color ref
   is_dirty() {
-    test -n "$(git status --porcelain --ignore-submodules)"
+    test -n "$(git status --porcelain --ignore-submodules 2>/dev/null)"
   }
-  ref="$vcs_info_msg_0_"
+  ref=$(git symbolic-ref --short HEAD 2>/dev/null || git rev-parse --short HEAD 2>/dev/null)
   if [[ -n "$ref" ]]; then
     if is_dirty; then
       color=yellow
@@ -115,28 +100,18 @@ prompt_git() {
       color=green
       ref="${ref} "
     fi
-    if [[ "${ref/.../}" == "$ref" ]]; then
-      ref="$BRANCH $ref"
-    else
-      ref="$DETACHED ${ref/.../}"
-    fi
-    prompt_segment $color $PRIMARY_FG
-    print -n " $ref"
+    ref="$BRANCH $ref"
+    prompt_segment $color $PRIMARY_FG " $ref"
   fi
 }
 
-# Dir: current working directory
 prompt_dir() {
-  prompt_segment blue $PRIMARY_FG ' %~ '
+  # Bright blue background for the directory segment
+  prompt_segment '#76C2F3' $PRIMARY_FG ' %~ '
 }
 
-# Status:
-# - was there an error
-# - am I root
-# - are there background jobs?
 prompt_status() {
-  local symbols
-  symbols=()
+  local symbols=()
   [[ $RETVAL -ne 0 ]] && symbols+="%{%F{red}%}$CROSS"
   [[ $UID -eq 0 ]] && symbols+="%{%F{yellow}%}$LIGHTNING"
   [[ $(jobs -l | wc -l) -gt 0 ]] && symbols+="%{%F{cyan}%}$GEAR"
@@ -144,48 +119,42 @@ prompt_status() {
   [[ -n "$symbols" ]] && prompt_segment $PRIMARY_FG default " $symbols "
 }
 
-# Display current virtual environment
 prompt_virtualenv() {
   if [[ -n $VIRTUAL_ENV ]]; then
-    color=cyan
-    prompt_segment $color $PRIMARY_FG
-    print -Pn " $(basename $VIRTUAL_ENV) "
+    prompt_segment cyan $PRIMARY_FG " $(basename $VIRTUAL_ENV) "
   fi
 }
 
-## Main prompt
+## Main prompt logic
 prompt_agnoster_main() {
   RETVAL=$?
   CURRENT_BG='NONE'
-  for prompt_segment in "${AGNOSTER_PROMPT_SEGMENTS[@]}"; do
-    [[ -n $prompt_segment ]] && $prompt_segment
+  for segment in "${AGNOSTER_PROMPT_SEGMENTS[@]}"; do
+    [[ -n $segment ]] && $segment
   done
   print -n "\n"
-  # prompt_segment white
   print -n "$SEGMENT_INPUT "
-  # prompt_end
 }
-
 
 prompt_agnoster_precmd() {
   vcs_info
-  PROMPT='$(print_line)%{%f%b%k%}$(prompt_agnoster_main)'
+  # Added a leading newline to ensure the horizontal line always starts at the beginning
+  PROMPT=$'\n''$(print_line)%{%f%b%k%}$(prompt_agnoster_main)'
 }
 
 prompt_agnoster_setup() {
   autoload -Uz add-zsh-hook
   autoload -Uz vcs_info
-
   prompt_opts=(cr subst percent)
-
   add-zsh-hook precmd prompt_agnoster_precmd
-
   zstyle ':vcs_info:*' enable git
-  zstyle ':vcs_info:*' check-for-changes false
   zstyle ':vcs_info:git*' formats '%b'
-  zstyle ':vcs_info:git*' actionformats '%b (%a)'
 }
 
+# Apply setup
+prompt_agnoster_setup "$@"
+
+# --- Rest of your existing ZSH configurations (setopt, bindkey, etc.) ---
 setopt autocd              # change directory just by typing its name
 #setopt correct            # auto correct mistakes
 setopt interactivecomments # allow comments in interactive mode
@@ -252,12 +221,12 @@ force_color_prompt=yes
 
 if [ -n "$force_color_prompt" ]; then
     if [ -x /usr/bin/tput ] && tput setaf 1 >&/dev/null; then
-	# We have color support; assume it's compliant with Ecma-48
-	# (ISO/IEC-6429). (Lack of such support is extremely rare, and such
-	# a case would tend to support setf rather than setaf.)
-	color_prompt=yes
+        # We have color support; assume it's compliant with Ecma-48
+        # (ISO/IEC-6429). (Lack of such support is extremely rare, and such
+        # a case would tend to support setf rather than setaf.)
+        color_prompt=yes
     else
-	color_prompt=
+        color_prompt=
     fi
 fi
 
@@ -310,7 +279,7 @@ if [ -f /usr/share/zsh-syntax-highlighting/zsh-syntax-highlighting.zsh ] && [ "$
  ZSH_HIGHLIGHT_STYLES[bracket-level-3]=fg=magenta,bold
  ZSH_HIGHLIGHT_STYLES[bracket-level-4]=fg=yellow,bold
  ZSH_HIGHLIGHT_STYLES[bracket-level-5]=fg=cyan,bold
- ZSH_HIGHLIGHT_STYLES[cursor-matchingbracket]=standout    	
+ ZSH_HIGHLIGHT_STYLES[cursor-matchingbracket]=standout    
 fi
 
 # enable color support of ls, less and man, and also add handy aliases
@@ -350,4 +319,3 @@ if [ -f /usr/share/zsh-autosuggestions/zsh-autosuggestions.zsh ]; then
     ZSH_AUTOSUGGEST_HIGHLIGHT_STYLE='fg=#999'
 fi
 
-prompt_agnoster_setup "$@"
